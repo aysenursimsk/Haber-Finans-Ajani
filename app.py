@@ -12,6 +12,7 @@ fonksiyonlar üzerinden yürütülür.
 import streamlit as st
 import chromadb
 import uuid
+import json
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="analizler")
@@ -60,15 +61,23 @@ except Exception as e:
     ajan_yukleme_hatasi = str(e)
 
 
-def hafizaya_kaydet(konu, ozet, kullanici_id=None):
+def hafizaya_kaydet(konu, ozet, haberler=None, bias_analysis=None, kullanici_id=None):
     try:
+        yeni_id = str(uuid.uuid4())
         collection.add(
             documents=[ozet],
-            metadatas=[{"konu": konu, "kullanici_id": str(kullanici_id) if kullanici_id else "misafir"}],
-            ids=[str(uuid.uuid4())]
+            metadatas=[{
+                "konu": konu,
+                "kullanici_id": str(kullanici_id) if kullanici_id else "misafir",
+                "haberler": json.dumps(haberler or [], ensure_ascii=False),
+                "bias_analysis": json.dumps(bias_analysis or {}, ensure_ascii=False),
+                "favoriler": json.dumps([], ensure_ascii=False),
+            }],
+            ids=[yeni_id]
         )
+        return yeni_id
     except Exception:
-        pass
+        return None
 
 
 # --- Sayfa ayarları ----------------------------------------------------------
@@ -103,15 +112,21 @@ with st.sidebar.expander("Geçmiş Sorgularım"):
             if kendi_kayitlarim:
                 for i, meta in reversed(kendi_kayitlarim):
                     goruntu_metni = meta['konu'] if len(meta['konu']) <= 30 else meta['konu'][:30] + "..."
-                    if st.button(f"🔎 {goruntu_metni}", key=f"gecmis_{i}", use_container_width=True):
-                        st.session_state["secili_kayit"] = {
-                            "konu": meta["konu"],
-                            "ozet": tum_kayitlar["documents"][i]
+                    if st.button(f"🕘 {goruntu_metni}", key=f"gecmis_{i}", use_container_width=True):
+                        st.session_state["son_konu"] = meta["konu"]
+                        st.session_state["son_haberler"] = json.loads(meta.get("haberler", "[]"))
+                        st.session_state["son_analiz"] = {
+                            "tldr": tum_kayitlar["documents"][i],
+                            "bias_analysis": json.loads(meta.get("bias_analysis", "{}")),
                         }
-                        for anahtar in ["son_analiz", "son_haberler", "son_konu"]:
-                            if anahtar in st.session_state:
-                                del st.session_state[anahtar]
+                        st.session_state["yuklenen_favoriler"] = set(json.loads(meta.get("favoriler", "[]")))
+                        st.session_state["yuklenen_notlar"] = json.loads(meta.get("notlar", "{}"))
+                        st.session_state["aktif_kayit_id"] = tum_kayitlar["ids"][i]
+                        if "secili_kayit" in st.session_state:
+                            del st.session_state["secili_kayit"]
+                        st.session_state["mod_secimi"] = "Genel Haber Modu"
                         st.rerun()
+                        
             else:
                 st.caption("Henüz sorgu yapılmadı.")
         except Exception:
@@ -144,15 +159,6 @@ if not AJANLAR_YUKLENDI:
 # GENEL HABER MODU
 # =============================================================================
 if mod == "Genel Haber Modu":
-    if st.session_state.get("secili_kayit"):
-        secili = st.session_state["secili_kayit"]
-        st.markdown("---")
-        st.subheader(f"📌 Geçmiş Sorgu: {secili['konu']}")
-        st.info(secili["ozet"])
-        if st.button("✕ Kapat"):
-            del st.session_state["secili_kayit"]
-            st.rerun()
-        st.markdown("---")
 
     st.subheader("🔍 Genel Haber Modu")
     st.write(
@@ -221,7 +227,14 @@ if mod == "Genel Haber Modu":
                         except Exception:
                             pass  # sorgu geçmişi kaydı opsiyoneldir, analiz sonucunu etkilemez
 
-                        hafizaya_kaydet(konu, analiz.get("tldr", ""), kullanici_id=kullanici["id"])
+                        aktif_kayit_id = hafizaya_kaydet(
+                            konu,
+                            analiz.get("tldr", ""),
+                            haberler=haberler,
+                            bias_analysis=analiz.get("bias_analysis", {}),
+                            kullanici_id=kullanici["id"]
+                        )
+                        st.session_state["aktif_kayit_id"] = aktif_kayit_id
 
             except ValueError as e:
                 st.error(f"🚫 Geçersiz girdi: {e}")
@@ -243,6 +256,16 @@ if mod == "Genel Haber Modu":
 
         st.markdown("---")
 
+        col_kapat, col_bosluk = st.columns([1, 5])
+        with col_kapat:
+            if st.button("✕ Kapat"):
+                for anahtar in ["son_analiz", "son_haberler", "son_konu", "yuklenen_favoriler", "yuklenen_notlar", "aktif_kayit_id"]:
+                    if anahtar in st.session_state:
+                        del st.session_state[anahtar]
+                st.rerun()
+
+        st.caption(f"Konu: **{son_konu}**")
+
         if kullanici:
             if st.button("⭐ Bu Konuyu Favorilere Ekle"):
                 try:
@@ -250,6 +273,8 @@ if mod == "Genel Haber Modu":
                     st.success(f"'{son_konu}' favorilerinize eklendi.")
                 except Exception:
                     st.error("😕 Favorilere eklenirken bir sorun oluştu.")
+                    
+        
 
         st.markdown("### 📌 Kısaca Ne Oldu?")
         st.info(analiz.get("tldr", "Özet oluşturulamadı."))
@@ -307,15 +332,85 @@ if mod == "Genel Haber Modu":
 
         if haberler:
             with st.expander(f"📰 Kaynak Haberler ({len(haberler)} adet)"):
-                for haber in haberler:
-                    st.markdown(
-                        f"**{haber.get('Başlık', 'Başlık yok')}**  \n"
-                        f"🗞️ {haber.get('Kaynak', 'Bilinmiyor')} · 🗓️ {haber.get('Tarih', 'Tarih yok')}  \n"
-                        f"🔗 [{haber.get('URL', '')}]({haber.get('URL', '')})"
-                    )
-                    st.markdown("---")
+                from kaynak_karti import kaynak_kartini_goster
 
+                try:
+                    favori_kaynaklar = favorileri_getir(kullanici["id"], tur="haber_kaynagi") if kullanici else []
+                except Exception:
+                    favori_kaynaklar = []
+                favori_haber_urlleri = {f["deger"] for f in favori_kaynaklar}
+                favori_haber_id_map = {f["deger"]: f["id"] for f in favori_kaynaklar}
+                mevcut_notlar = st.session_state.get("yuklenen_notlar", {})
 
+                for i, haber in enumerate(haberler):
+                    kaynak_bilgisi = bias_analysis.get(haber["Kaynak"], {})
+                    kaynak_adi = haber.get("Kaynak", "Bilinmiyor")
+                    baslik = haber.get("Başlık", "Başlık yok")
+                    haber_url = haber.get("URL", f"haber_{i}")
+
+                    sonuc = kaynak_kartini_goster({
+                        "baslik": baslik,
+                        "kaynak_adi": kaynak_adi,
+                        "tarih": haber.get("Tarih", "Tarih yok"),
+                        "link": haber.get("URL", "#"),
+                        "olgu_yorum_skoru": kaynak_bilgisi.get("olgu_yorum_skoru", 0.5),
+                        "dogrulama_skoru": kaynak_bilgisi.get("dogrulama_skoru", 0.5),
+                        "duygusal_yuzde": kaynak_bilgisi.get("duygusal_yuzde", 0),
+                    }, index=i, favorilendi_mi=(haber_url in favori_haber_urlleri),
+                       kayitli_not=mevcut_notlar.get(haber_url, ""),
+                       benzersiz_on_ek=str(st.session_state.get("aktif_kayit_id", son_konu)))
+
+                    if sonuc["favori_tiklandi_mi"] is not None and kullanici:
+                        try:
+                            if sonuc["favori_tiklandi_mi"]:
+                                favori_ekle(kullanici["id"], "haber_kaynagi", haber_url, f"{baslik} ({kaynak_adi})")
+                            else:
+                                favori_sil(favori_haber_id_map[haber_url], kullanici["id"])
+                        except Exception:
+                            pass
+                        st.rerun()
+
+                    if sonuc["yeni_not"] is not None:
+                        mevcut_notlar[haber_url] = sonuc["yeni_not"]
+                        st.session_state["yuklenen_notlar"] = mevcut_notlar
+                        aktif_id = st.session_state.get("aktif_kayit_id")
+                        if aktif_id:
+                            try:
+                                collection.update(
+                                    ids=[aktif_id],
+                                    metadatas=[{"notlar": json.dumps(mevcut_notlar, ensure_ascii=False)}]
+                                )
+                            except Exception:
+                                pass
+                        st.rerun()
+
+                    if sonuc["yeni_not"] is not None:
+                        mevcut_notlar[haber_url] = sonuc["yeni_not"]
+                        st.session_state["yuklenen_notlar"] = mevcut_notlar
+                        aktif_id = st.session_state.get("aktif_kayit_id")
+                        if aktif_id:
+                            try:
+                                collection.update(
+                                    ids=[aktif_id],
+                                    metadatas=[{"notlar": json.dumps(mevcut_notlar, ensure_ascii=False)}]
+                                )
+                            except Exception:
+                                pass
+                        st.rerun()
+
+                    if sonuc["yeni_not"] is not None:
+                        mevcut_notlar[kaynak_adi] = sonuc["yeni_not"]
+                        st.session_state["yuklenen_notlar"] = mevcut_notlar
+                        aktif_id = st.session_state.get("aktif_kayit_id")
+                        if aktif_id:
+                            try:
+                                collection.update(
+                                    ids=[aktif_id],
+                                    metadatas=[{"notlar": json.dumps(mevcut_notlar, ensure_ascii=False)}]
+                                )
+                            except Exception:
+                                pass
+                        st.rerun()
 # =============================================================================
 # FİNANSAL ANALİZ MODU
 # =============================================================================
@@ -521,13 +616,38 @@ elif mod == "Finansal Analiz Modu":
         # --- Finansal haber akışı ---
         if finansal_haberler:
             with st.expander(f"📰 İlgili Haberler ({len(finansal_haberler)} adet)"):
-                for haber in finansal_haberler:
-                    st.markdown(
-                        f"**{haber.get('Başlık', 'Başlık yok')}**  \n"
-                        f"🗞️ {haber.get('Kaynak', 'Bilinmiyor')} · 🗓️ {haber.get('Tarih', 'Tarih yok')}  \n"
-                        f"🔗 [{haber.get('URL', '')}]({haber.get('URL', '')})"
-                    )
-                    st.markdown("---")
+                from kaynak_karti import kaynak_kartini_goster
+
+                try:
+                    finans_favori_kaynaklar = favorileri_getir(finans_kullanici["id"], tur="haber_kaynagi") if finans_kullanici else []
+                except Exception:
+                    finans_favori_kaynaklar = []
+                finans_favori_urlleri = {f["deger"] for f in finans_favori_kaynaklar}
+                finans_favori_id_map = {f["deger"]: f["id"] for f in finans_favori_kaynaklar}
+
+                for i, haber in enumerate(finansal_haberler):
+                    kaynak_adi = haber.get("Kaynak", "Bilinmiyor")
+                    baslik = haber.get("Başlık", "Başlık yok")
+                    haber_url = haber.get("URL", f"finans_haber_{i}")
+
+                    sonuc = kaynak_kartini_goster({
+                        "baslik": baslik,
+                        "kaynak_adi": kaynak_adi,
+                        "tarih": haber.get("Tarih", "Tarih yok"),
+                        "link": haber.get("URL", "#"),
+                    }, index=i, favorilendi_mi=(haber_url in finans_favori_urlleri),
+                       benzersiz_on_ek=f"finans_{varlik_adi}",
+                       not_ozelligi_aktif=False)
+
+                    if sonuc["favori_tiklandi_mi"] is not None and finans_kullanici:
+                        try:
+                            if sonuc["favori_tiklandi_mi"]:
+                                favori_ekle(finans_kullanici["id"], "haber_kaynagi", haber_url, f"{baslik} ({kaynak_adi})")
+                            else:
+                                favori_sil(finans_favori_id_map[haber_url], finans_kullanici["id"])
+                        except Exception:
+                            pass
+                        st.rerun()
 
         st.caption(
             "Veriler yfinance üzerinden çekilmiştir, gerçek zamanlı borsa akışı değildir "
@@ -584,6 +704,28 @@ elif mod == "⭐ Favorilerim":
                 if col_sil.button("Sil", key=f"favori_varlik_sil_{favori['id']}"):
                     favori_sil(favori["id"], kullanici["id"])
                     st.rerun()
+
+
+        st.markdown("### 📰 Favori Kaynaklar")
+        try:
+            favori_kaynaklar = favorileri_getir(kullanici["id"], tur="haber_kaynagi")
+        except Exception:
+            favori_kaynaklar = []
+            st.error("😕 Favori kaynaklar yüklenirken bir sorun oluştu.")
+
+        with st.expander(f"📰 Favori Kaynaklar ({len(favori_kaynaklar)} adet)"):
+            if not favori_kaynaklar:
+                st.caption("Henüz favori kaynağınız yok. Bir haber analizi yapıp kaynak kartlarından favorileyebilirsiniz.")
+            else:
+                for favori in favori_kaynaklar:
+                    col_ad, col_sil = st.columns([5, 1])
+                    with col_ad:
+                        st.markdown(f"**{favori.get('ek_bilgi') or 'Başlık yok'}**")
+                        st.caption(f"[🔗 Kaynağa git]({favori['deger']})")
+                    if col_sil.button("Sil", key=f"favori_kaynak_sil_{favori['id']}"):
+                        favori_sil(favori["id"], kullanici["id"])
+                        st.rerun()
+
 
         st.markdown("### 🔔 Fiyat Alarmlarım")
         try:

@@ -16,6 +16,7 @@ import json
 import time
 from datetime import datetime, timezone
 
+
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(name="analizler")
 
@@ -59,6 +60,7 @@ try:
     from data.sorgu_cache import cache_getir, cache_kaydet, cache_temizle
     from data.disa_aktarma import genel_analiz_pdf_uret, finansal_analiz_pdf_uret, portfoy_csv_uret
     from ui.giris_ekrani import giris_ekranini_goster, hesap_ozetini_goster
+    from data.disa_aktarma import genel_analiz_pdf_uret, finansal_analiz_pdf_uret, portfoy_csv_uret, haberler_csv_uret
 
     veritabanini_hazirla()
 
@@ -143,6 +145,9 @@ with st.sidebar.expander("Geçmiş Sorgularım"):
 if st.session_state.get("onerilen_mod_gecisi"):
     st.session_state["mod_secimi"] = "Finansal Analiz Modu"
     del st.session_state["onerilen_mod_gecisi"]
+
+if st.session_state.get("mod_gecis_hedefi"):
+    st.session_state["mod_secimi"] = st.session_state.pop("mod_gecis_hedefi")
 
 st.sidebar.title("📊 Menü")
 mod = st.sidebar.radio(
@@ -272,19 +277,75 @@ if mod == "Genel Haber Modu":
                     st.session_state["son_cache_zamani"] = cache_zamani
 
 
-                    if kullanici:
+                    if kullanici and not cache_kaydi:
                         try:
                             sorgu_kaydet(kullanici["id"], konu)
                         except Exception:
                             pass  # sorgu geçmişi kaydı opsiyoneldir, analiz sonucunu etkilemez
 
-                        aktif_kayit_id = hafizaya_kaydet(
-                            konu,
-                            analiz.get("tldr", ""),
-                            haberler=haberler,
-                            bias_analysis=analiz.get("bias_analysis", {}),
-                            kullanici_id=kullanici["id"]
-                        )
+                        onceki_kayit = None
+                        try:
+                            tum_kayitlar_kontrol = collection.get()
+                            kullanici_id_str = str(kullanici["id"])
+                            eslesenler = [
+                                (i, meta) for i, meta in enumerate(tum_kayitlar_kontrol["metadatas"])
+                                if meta.get("kullanici_id") == kullanici_id_str and meta.get("konu") == konu
+                            ]
+                            if eslesenler:
+                                onceki_kayit = eslesenler[-1]
+                        except Exception:
+                            onceki_kayit = None
+
+                        if onceki_kayit:
+                            onceki_index, onceki_meta = onceki_kayit
+                            onceki_haberler = json.loads(onceki_meta.get("haberler", "[]"))
+                            onceki_urller = {h.get("URL") for h in onceki_haberler}
+                            yeni_haberler = [h for h in haberler if h.get("URL") not in onceki_urller]
+
+                            if yeni_haberler:
+                                try:
+                                    yeni_analiz = haberleri_analiz_et(yeni_haberler, konu)
+                                    yeni_ozet_metni = yeni_analiz.get("tldr", "")
+                                except Exception:
+                                    yeni_ozet_metni = ""
+
+                                kaynak_linkleri = "\n".join(
+                                    f"- [{h.get('Başlık', 'Başlık yok')}]({h.get('URL', '#')}) — {h.get('Kaynak', 'Bilinmiyor')}"
+                                    for h in yeni_haberler[:8]
+                                )
+                                onceki_ozet = tum_kayitlar_kontrol["documents"][onceki_index]
+                                guncellenmis_ozet = (
+                                    f"{onceki_ozet}\n\n---\n\n"
+                                    f"🔴 **SON DAKİKA - Yeni Gelişmeler**\n\n"
+                                    f"{yeni_ozet_metni}\n\n"
+                                    f"**Kaynaklar:**\n{kaynak_linkleri}"
+                                )
+
+                                aktif_kayit_id = tum_kayitlar_kontrol["ids"][onceki_index]
+                                try:
+                                    collection.update(
+                                        ids=[aktif_kayit_id],
+                                        documents=[guncellenmis_ozet],
+                                        metadatas=[{
+                                            "haberler": json.dumps(haberler, ensure_ascii=False),
+                                            "bias_analysis": json.dumps(analiz.get("bias_analysis", {}), ensure_ascii=False),
+                                        }]
+                                    )
+                                    analiz["tldr"] = guncellenmis_ozet
+                                    st.session_state["son_analiz"] = analiz
+                                except Exception:
+                                    pass
+                            else:
+                                aktif_kayit_id = tum_kayitlar_kontrol["ids"][onceki_index]
+                        else:
+                            aktif_kayit_id = hafizaya_kaydet(
+                                konu,
+                                analiz.get("tldr", ""),
+                                haberler=haberler,
+                                bias_analysis=analiz.get("bias_analysis", {}),
+                                kullanici_id=kullanici["id"]
+                            )
+
                         st.session_state["aktif_kayit_id"] = aktif_kayit_id
 
             except ValueError as e:
@@ -329,7 +390,7 @@ if mod == "Genel Haber Modu":
 
         st.caption(f"Konu: **{son_konu}**")
 
-        col_favori, col_alarm, col_pdf = st.columns([2, 2, 1])
+        col_favori, col_alarm, col_pdf, col_csv = st.columns([2, 2, 1, 1])
         with col_favori:
             if kullanici:
                 if st.button("⭐ Bu Konuyu Favorilere Ekle"):
@@ -356,8 +417,19 @@ if mod == "Genel Haber Modu":
                     file_name=f"haber_analizi_{son_konu[:30]}.pdf",
                     mime="application/pdf", width="stretch",
                 )
+            except Exception as e:
+                st.exception(e)
+
+        with col_csv:
+            try:
+                csv_verisi = haberler_csv_uret(haberler, analiz.get("bias_analysis", {}))
+                st.download_button(
+                    "📊 CSV İndir", data=csv_verisi,
+                    file_name=f"haberler_{son_konu[:30]}.csv",
+                    mime="text/csv", width="stretch",
+                )
             except Exception:
-                st.caption("😕 PDF oluşturulamadı.")
+                st.caption("😕 CSV oluşturulamadı.")
 
         if st.session_state.get("genis_arama_yapildi"):
             st.caption("ℹ️ Son 3 günde yeterli haber bulunamadığı için arama son 30 güne genişletildi.")
@@ -644,15 +716,42 @@ elif mod == "Finansal Analiz Modu":
         st.markdown("### 📌 Sade Dil Özeti")
         st.info(finansal_analiz.get("ozet", "Özet oluşturulamadı."))
 
-        try:
-            finans_pdf_verisi = finansal_analiz_pdf_uret(varlik_adi, fiyat_bilgisi, finansal_analiz, finansal_haberler)
-            st.download_button(
-                "📄 PDF Olarak İndir", data=finans_pdf_verisi,
-                file_name=f"finansal_analiz_{varlik_adi}.pdf",
-                mime="application/pdf",
-            )
-        except Exception:
-            st.caption("😕 PDF oluşturulamadı.")
+        col_finans_pdf, col_finans_csv, col_fiyat_csv = st.columns(3)
+        with col_finans_pdf:
+            try:
+                finans_pdf_verisi = finansal_analiz_pdf_uret(
+                    varlik_adi, fiyat_bilgisi, finansal_analiz, finansal_haberler,
+                    fiyat_df=fiyat_df, gostergeler=secili_gostergeler
+                )
+                st.download_button(
+                    "📄 PDF Olarak İndir", data=finans_pdf_verisi,
+                    file_name=f"finansal_analiz_{varlik_adi}.pdf",
+                    mime="application/pdf", width="stretch",
+                )
+            except Exception as e:
+                st.caption(f"😕 PDF oluşturulamadı: {e}")
+        with col_finans_csv:
+            try:
+                from data.disa_aktarma import haberler_csv_uret
+                finans_csv_verisi = haberler_csv_uret(finansal_haberler)
+                st.download_button(
+                    "📊 Haberler (CSV)", data=finans_csv_verisi,
+                    file_name=f"finansal_haberler_{varlik_adi}.csv",
+                    mime="text/csv", width="stretch",
+                )
+            except Exception as e:
+                st.caption(f"😕 CSV oluşturulamadı: {e}")
+        with col_fiyat_csv:
+            try:
+                from data.disa_aktarma import fiyat_verisi_csv_uret
+                fiyat_csv_verisi = fiyat_verisi_csv_uret(fiyat_df)
+                st.download_button(
+                    "📈 Fiyat Verisi (CSV)", data=fiyat_csv_verisi,
+                    file_name=f"fiyat_verisi_{varlik_adi}.csv",
+                    mime="text/csv", width="stretch",
+                )
+            except Exception as e:
+                st.caption(f"😕 CSV oluşturulamadı: {e}")
 
         # --- Hesap gerektiren aksiyonlar: favori / alarm / portföy ---
         finans_kullanici = st.session_state.get("kullanici")
@@ -785,8 +884,35 @@ elif mod == "⭐ Favorilerim":
             st.caption("Henüz favori haber konunuz yok. Genel Haber Modu'nda bir analiz yapıp favorilere ekleyebilirsiniz.")
         else:
             for favori in favori_konular:
-                col_ad, col_sil = st.columns([5, 1])
+                col_ad, col_git, col_sil = st.columns([4, 2, 1])
                 col_ad.write(f"🔖 {favori['deger']}")
+                with col_git:
+                    if st.button("Sonuçlara Git", key=f"favori_konu_git_{favori['id']}"):
+                        try:
+                            tum_kayitlar = collection.get()
+                            kullanici_id_str = str(kullanici["id"])
+                            eslesenler = [
+                                (i, meta) for i, meta in enumerate(tum_kayitlar["metadatas"])
+                                if meta.get("kullanici_id") == kullanici_id_str
+                                and meta.get("konu") == favori["deger"]
+                            ]
+                            if eslesenler:
+                                i, meta = eslesenler[-1]
+                                st.session_state["son_konu"] = meta["konu"]
+                                st.session_state["son_haberler"] = json.loads(meta.get("haberler", "[]"))
+                                st.session_state["son_analiz"] = {
+                                    "tldr": tum_kayitlar["documents"][i],
+                                    "bias_analysis": json.loads(meta.get("bias_analysis", "{}")),
+                                }
+                                st.session_state["yuklenen_notlar"] = json.loads(meta.get("notlar", "{}"))
+                                st.session_state["aktif_kayit_id"] = tum_kayitlar["ids"][i]
+                                st.session_state["genis_arama_yapildi"] = False
+                                st.session_state["mod_gecis_hedefi"] = "Genel Haber Modu"
+                                st.rerun()
+                            else:
+                                st.warning("Bu konu için kayıtlı bir sorgu bulunamadı.")
+                        except Exception as e:
+                            st.exception(e)
                 if col_sil.button("Sil", key=f"favori_konu_sil_{favori['id']}"):
                     favori_sil(favori["id"], kullanici["id"])
                     st.rerun()
@@ -922,6 +1048,46 @@ elif mod == "⭐ Favorilerim":
                                         f"🔔 **{alarm['konu']}** hakkında {len(yeni_haberler)} yeni haber var: "
                                         + "; ".join(h.get("Başlık", "") for h in yeni_haberler[:3])
                                     )
+                                    try:
+                                        tum_kayitlar_alarm = collection.get()
+                                        kullanici_id_str = str(kullanici["id"])
+                                        eslesenler_alarm = [
+                                            (i, meta) for i, meta in enumerate(tum_kayitlar_alarm["metadatas"])
+                                            if meta.get("kullanici_id") == kullanici_id_str and meta.get("konu") == alarm["konu"]
+                                        ]
+                                        if eslesenler_alarm:
+                                            onceki_index_alarm, onceki_meta_alarm = eslesenler_alarm[-1]
+                                            onceki_haberler_alarm = json.loads(onceki_meta_alarm.get("haberler", "[]"))
+                                            birlesik_haberler_alarm = onceki_haberler_alarm + yeni_haberler
+
+                                            yeni_analiz_alarm = haberleri_analiz_et(yeni_haberler, alarm["konu"])
+                                            yeni_ozet_metni_alarm = yeni_analiz_alarm.get("tldr", "")
+                                            kaynak_linkleri_alarm = "\n".join(
+                                                f"- [{h.get('Başlık', 'Başlık yok')}]({h.get('URL', '#')}) — {h.get('Kaynak', 'Bilinmiyor')}"
+                                                for h in yeni_haberler[:8]
+                                            )
+                                            onceki_ozet_alarm = tum_kayitlar_alarm["documents"][onceki_index_alarm]
+                                            guncellenmis_ozet_alarm = (
+                                                f"{onceki_ozet_alarm}\n\n---\n\n"
+                                                f"🔴 **SON DAKİKA - Yeni Gelişmeler**\n\n"
+                                                f"{yeni_ozet_metni_alarm}\n\n"
+                                                f"**Kaynaklar:**\n{kaynak_linkleri_alarm}"
+                                            )
+
+                                            onceki_bias_alarm = json.loads(onceki_meta_alarm.get("bias_analysis", "{}"))
+                                            onceki_bias_alarm.update(yeni_analiz_alarm.get("bias_analysis", {}))
+
+                                            collection.update(
+                                                ids=[tum_kayitlar_alarm["ids"][onceki_index_alarm]],
+                                                documents=[guncellenmis_ozet_alarm],
+                                                metadatas=[{
+                                                    **onceki_meta_alarm,
+                                                    "haberler": json.dumps(birlesik_haberler_alarm, ensure_ascii=False),
+                                                    "bias_analysis": json.dumps(onceki_bias_alarm, ensure_ascii=False),
+                                                }]
+                                            )
+                                    except Exception:
+                                        pass
 
                             konu_alarmi_gorulenleri_guncelle(alarm["id"], guncel_urller)
                     st.rerun()

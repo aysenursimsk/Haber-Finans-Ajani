@@ -1,0 +1,9 @@
+streamlit
+chromadb
+anthropic
+tavily-python
+pandas
+yfinance
+python-dotenv
+bcrypt
+fpdf2

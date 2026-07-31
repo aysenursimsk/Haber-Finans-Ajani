@@ -16,7 +16,7 @@ kaynaktan haber toplar, özetler, kaynaklar arası bakış açısı
 farklılıklarını analiz eder. Finansal modda fiyat verisi, teknik
 göstergeler ve piyasa duygu analizi de sunulur. Kullanıcı hesabı
 üzerinden favori konu/varlık takibi, fiyat alarmları ve portföy
-kaydı tutulabilir; uygulama hem web hem mobil üzerinden erişilebilir.
+kaydı tutulabilir; uygulama web üzerinden (Streamlit) erişilebilir.
 
 ## Ürün Özellikleri
 - Çoklu kaynaktan otomatik haber toplama
@@ -27,8 +27,11 @@ kaydı tutulabilir; uygulama hem web hem mobil üzerinden erişilebilir.
 - Kullanıcı hesabı, favori konu/varlık kaydetme
 - Fiyat alarmları ve portföy takibi
 - Piyasa takvimi (TCMB PPK, TÜİK tarihleri)
-- Oturum ve uzun vadeli hafıza ile bağlam kurma
-- Web ve mobil erişim
+- Oturum, uzun vadeli tercih hafızası ve sorgu cache'i (3 katmanlı hafıza)
+- Kaynak kartlarında favori/not alma
+- Konu/haber alarmları — takip edilen bir konuda yeni haber çıkınca uygulama içi bildirim
+- Analiz ekranını PDF, portföyü CSV olarak dışa aktarma
+- Web erişimi (mobil uygulama backlog'da, kapsam dışı)
 
 ## Hedef Kitle
 - Güncel haberleri takip eden genel kullanıcılar
@@ -36,8 +39,10 @@ kaydı tutulabilir; uygulama hem web hem mobil üzerinden erişilebilir.
 - Finansal okuryazarlığını geliştirmek isteyen gençler
 
 ## Kullanılan Teknolojiler
-Python, LangGraph, Tavily API, NewsAPI,
-Gemini API, ChromaDB, Streamlit, Render.com
+Python, Streamlit, Anthropic Claude API, Tavily API,
+ChromaDB, SQLite, yfinance
+
+*(Not: Uygulama henüz canlıya alınmadı; deploy Sprint 3 kapsamında bir sonraki adım.)*
 
 ## Product Backlog
 [Proje Yönetimi => Miro Board](https://miro.com/welcomeonboard/RktwR1FoL0lQdnV6dG0zSzU0SUNlaGUrWHJRWnJkU2ErTnVaYWJDR0xjNTVMVkFVSDhXRFpMWDlhNEtXQXNMZU1RMmpUS01BOTdsTjRnbmtlYis2czZxVkRqa2VVektxdUlOM2c0MllPZmYxSGpVS3lsaEFvOFZGckYreUZGaEVBS2NFMDFkcUNFSnM0d3FEN050ekl3PT0hdjE=?share_link_id=980797653059)
@@ -60,7 +65,8 @@ Gemini API, ChromaDB, Streamlit, Render.com
 
 - **Daily Scrum:** Toplantılar zaman kısıtları nedeniyle her gün değil, haftada 1-2 kez WhatsApp
   üzerinden yazılı check-in şeklinde yapılmıştır. Ekip üyeleri o gün yaptıkları işi ve varsa
-  engelleri kısaca paylaşmıştır.
+  engelleri kısaca paylaşmıştır. Check-in ekran görüntülerine Notion üzerinden ulaşılabilir:
+  [Daily Scrum Ekran Görüntüleri (Notion)](https://app.notion.com/p/Yzta-Bootcamp-Grup-108-Daily-Scurm-SS-3aea0af6b93e80b8865ad9f7e4d7ca0d?source=copy_link)
 
 - **Sprint board update:** Sprint board genel görünümü:
   ![Sprint 1 Board Genel](ProjectManagement/Sprint1Documents/sprint1-board-genel.png)
@@ -115,7 +121,9 @@ Gemini API, ChromaDB, Streamlit, Render.com
   ![Sprint 2 Board Genel 2](ProjectManagement/Sprint2Documents/sprint2-board-genel2.png)
 
 - **Daily Scrum:** Sprint 1'de olduğu gibi, toplantılar haftada 1-2 kez WhatsApp üzerinden
-  yazılı check-in şeklinde sürdürüldü.
+  yazılı check-in şeklinde sürdürüldü. Check-in ekran görüntülerine Notion üzerinden
+  ulaşılabilir:
+  [Daily Scrum Ekran Görüntüleri (Notion)](https://app.notion.com/p/Yzta-Bootcamp-Grup-108-Daily-Scurm-SS-3aea0af6b93e80b8865ad9f7e4d7ca0d?source=copy_link)
 
 - **Sprint board update:** Board'un genel görünümü yukarıdaki görsellerde yer almaktadır.
 
@@ -162,3 +170,64 @@ Gemini API, ChromaDB, Streamlit, Render.com
 ---
 
 # Sprint 3
+
+**Sprint Süresi:** 20 Temmuz 2026 – 2 Ağustos 2026
+
+- **Backlog düzeni ve Story seçimleri:** Sprint 3'ün odağı, geliştirilen kodun ana
+  branch'e taşınması, kaynak kartı tasarımının tamamlanması ve önceki sprint'lerden
+  devreden dışa aktarma, konu/haber alarmları ve sorgu cache'i story'lerinin
+  tamamlanmasıydı. Ayrıca kod incelemesi kapsamında tespit edilen hataların
+  giderilmesi ve uygulamanın farklı cihazlarda düzgün çalıştığının doğrulanması bu
+  sprint'e alındı. Mobil uygulama backlog'da bekletilmeye devam etti. Backlog kolonu
+  ve genel board görünümü:
+  ![Sprint 3 Board Genel 1](ProjectManagement/Sprint3Documents/sprint3-board-genel-1.png)
+  ![Sprint 3 Board Genel 2](ProjectManagement/Sprint3Documents/sprint3-board-genel-2.png)
+  ![Sprint 3 Board Genel 3](ProjectManagement/Sprint3Documents/sprint3-board-genel-3.png)
+
+- **Daily Scrum:** Sprint 1 ve 2'de olduğu gibi, toplantılar haftada 1-2 kez WhatsApp
+  üzerinden yazılı check-in şeklinde sürdürüldü. Check-in ekran görüntülerine Notion
+  üzerinden ulaşılabilir:
+  [Daily Scrum Ekran Görüntüleri (Notion)](https://app.notion.com/p/Yzta-Bootcamp-Grup-108-Daily-Scurm-SS-3aea0af6b93e80b8865ad9f7e4d7ca0d?source=copy_link)
+
+- **Sprint board update:** Board'un genel görünümü yukarıdaki görsellerde yer almaktadır.
+
+- **Ürün Durumu:** Ekran görüntüleri:
+  ![Ürün Durumu 1](ProjectManagement/Sprint3Documents/urun-durumu-1.png)
+  ![Ürün Durumu 2](ProjectManagement/Sprint3Documents/urun-durumu-2.png)
+  ![Ürün Durumu 3](ProjectManagement/Sprint3Documents/urun-durumu-3.png)
+
+- **Sprint Review:**
+  Kaynak kartı tasarımı (başlık, kaynak adı, tarih, favori/not ikonları, olgu-yorum ve
+  doğrulama etiketleri) tamamlandı; favori ekleme ve not alma özellikleri artık kalıcı
+  olarak çalışıyor. Kullanıcının geçmiş sorgularına tek tıkla dönebilmesini sağlayan
+  geçmiş sorgu entegrasyonu eklendi. Haber toplama modülü, ilk taramada yeterli sonuç
+  bulunamadığında arama aralığını otomatik olarak genişletecek şekilde geliştirildi.
+  Geliştirilen kod ana branch'e taşındı ve kod incelemesi sırasında tespit edilen
+  hatalar giderildi.
+
+  Önceki sprint'lerden devreden story'ler tamamlandı: aynı konu kısa süre içinde
+  tekrar sorulduğunda sonuçlar yeniden hesaplanmadan gösterilmesini sağlayan sorgu
+  önbelleği (Sorgu Cache'i) eklendi. Kullanıcının bir konuyu haber alarmı olarak
+  takibe alabildiği ve takip ettiği konularda yeni haber çıktığında uygulama içinde
+  bildirim gördüğü Konu/Haber Alarmları özelliği tamamlandı. Analiz sonuçlarının PDF,
+  portföyün ise CSV olarak indirilebildiği Dışa Aktarma özelliği eklendi.
+
+  Uygulamanın telefon ve tablet gibi farklı ekran boyutlarında da düzgün çalıştığı
+  test edilerek doğrulandı; herhangi bir görünüm sorunu tespit edilmedi.
+
+  Alınan kararlar: Uygulamanın canlıya alınması (deploy) ve ayrı bir mobil uygulama
+  geliştirilmesi bilinçli olarak kapsam dışı bırakıldı; backlog'da kalan tek kalem
+  mobil uygulamadır. Bunun yerine web arayüzünün tüm cihazlarda sorunsuz çalışması
+  önceliklendirildi.
+
+  Sprint Review katılımcıları: Tüm takım.
+
+- **Sprint Retrospective:**
+  - Geliştirilen kodun sprint sonuna kadar ana branch'e taşınmamış olmasının son
+    ana kalan işleri sıkıştırdığı görüldü; branch birleştirmelerinin bir sonraki
+    projede sprint ortasında düzenli yapılmasına karar verildi.
+  - Kod incelemesinin sprint sonunda tek seferde değil, geliştirme sırasında
+    sürekli yapılmasının hataları daha erken yakalayacağı değerlendirildi.
+  - Ekip, deploy ve mobil uygulamayı bilinçli olarak kapsam dışı bırakarak kalan
+    süreyi kod kalitesi, hata düzeltmeleri ve backlog'da bekleyen story'lerin
+    tamamlanmasına ayırmanın doğru bir önceliklendirme olduğu sonucuna vardı.

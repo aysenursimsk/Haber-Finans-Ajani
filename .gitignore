@@ -1,0 +1,6 @@
+venv/
+.env
+__pycache__/
+.streamlit/
+data/uygulama.db
+chroma_db/

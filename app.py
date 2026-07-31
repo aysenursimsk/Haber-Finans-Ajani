@@ -82,12 +82,30 @@ def hafizaya_kaydet(konu, ozet, haberler=None, bias_analysis=None, kullanici_id=
                 "haberler": json.dumps(haberler or [], ensure_ascii=False),
                 "bias_analysis": json.dumps(bias_analysis or {}, ensure_ascii=False),
                 "favoriler": json.dumps([], ensure_ascii=False),
+                "guncellemeler": json.dumps([], ensure_ascii=False),
             }],
             ids=[yeni_id]
         )
         return yeni_id
     except Exception:
         return None
+
+def guncelleme_ekle(mevcut_guncellemeler, yeni_ozet, yeni_kaynaklar):
+    """Aynı güne ait güncellemeleri tek kayıtta birleştirir, farklı günse yeni kayıt açar."""
+    bugun = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    simdi_saat = datetime.now(timezone.utc).strftime("%H:%M")
+    if mevcut_guncellemeler and mevcut_guncellemeler[-1].get("gun") == bugun:
+        mevcut_guncellemeler[-1]["ozet"] = mevcut_guncellemeler[-1]["ozet"] + "\n\n" + yeni_ozet
+        mevcut_guncellemeler[-1]["kaynaklar"] = mevcut_guncellemeler[-1]["kaynaklar"] + yeni_kaynaklar
+        mevcut_guncellemeler[-1]["saat"] = simdi_saat
+    else:
+        mevcut_guncellemeler.append({
+            "gun": bugun,
+            "saat": simdi_saat,
+            "ozet": yeni_ozet,
+            "kaynaklar": yeni_kaynaklar,
+        })
+    return mevcut_guncellemeler[-5:]
 
 
 # --- Sayfa ayarları ----------------------------------------------------------
@@ -135,6 +153,7 @@ with st.sidebar.expander("Geçmiş Sorgularım"):
                         if "secili_kayit" in st.session_state:
                             del st.session_state["secili_kayit"]
                         st.session_state["mod_secimi"] = "Genel Haber Modu"
+                        st.session_state["son_guncellemeler"] = json.loads(meta.get("guncellemeler", "{}") if False else meta.get("guncellemeler", "[]"))
                         st.rerun()
                         
             else:
@@ -309,30 +328,29 @@ if mod == "Genel Haber Modu":
                                 except Exception:
                                     yeni_ozet_metni = ""
 
-                                kaynak_linkleri = "\n".join(
-                                    f"- [{h.get('Başlık', 'Başlık yok')}]({h.get('URL', '#')}) — {h.get('Kaynak', 'Bilinmiyor')}"
+                                yeni_kaynaklar = [
+                                    {
+                                        "baslik": h.get("Başlık", "Başlık yok"),
+                                        "url": h.get("URL", "#"),
+                                        "kaynak": h.get("Kaynak", "Bilinmiyor"),
+                                    }
                                     for h in yeni_haberler[:8]
-                                )
-                                onceki_ozet = tum_kayitlar_kontrol["documents"][onceki_index]
-                                guncellenmis_ozet = (
-                                    f"{onceki_ozet}\n\n---\n\n"
-                                    f"🔴 **SON DAKİKA - Yeni Gelişmeler**\n\n"
-                                    f"{yeni_ozet_metni}\n\n"
-                                    f"**Kaynaklar:**\n{kaynak_linkleri}"
-                                )
-
+                                ]
                                 aktif_kayit_id = tum_kayitlar_kontrol["ids"][onceki_index]
                                 try:
+                                    mevcut_guncellemeler = json.loads(onceki_meta.get("guncellemeler", "[]"))
+                                    mevcut_guncellemeler = json.loads(onceki_meta.get("guncellemeler", "[]"))
+                                    mevcut_guncellemeler = guncelleme_ekle(mevcut_guncellemeler, yeni_ozet_metni, yeni_kaynaklar) # sadece son 5 güncelleme tutulur
+
                                     collection.update(
                                         ids=[aktif_kayit_id],
-                                        documents=[guncellenmis_ozet],
                                         metadatas=[{
                                             "haberler": json.dumps(haberler, ensure_ascii=False),
                                             "bias_analysis": json.dumps(analiz.get("bias_analysis", {}), ensure_ascii=False),
+                                            "guncellemeler": json.dumps(mevcut_guncellemeler, ensure_ascii=False),
                                         }]
                                     )
-                                    analiz["tldr"] = guncellenmis_ozet
-                                    st.session_state["son_analiz"] = analiz
+                                    st.session_state["son_guncellemeler"] = mevcut_guncellemeler
                                 except Exception:
                                     pass
                             else:
@@ -437,6 +455,16 @@ if mod == "Genel Haber Modu":
 
         st.markdown("### 📌 Kısaca Ne Oldu?")
         st.info(analiz.get("tldr", "Özet oluşturulamadı."))
+
+        guncellemeler_listesi = st.session_state.get("son_guncellemeler", [])
+        if guncellemeler_listesi:
+            st.markdown("### 🔴 Güncellemeler")
+            for g in reversed(guncellemeler_listesi):
+                gun_etiketi = g.get('gun') or g.get('tarih', 'Bilinmiyor')
+                with st.expander(f"🔴 SON DAKİKA — {gun_etiketi}"):
+                    st.write(g["ozet"])
+                    for k in g["kaynaklar"]:
+                        st.markdown(f"- [{k['baslik']}]({k['url']}) — {k['kaynak']}")
 
         bias_analysis = analiz.get("bias_analysis", {})
         if bias_analysis:
@@ -908,6 +936,7 @@ elif mod == "⭐ Favorilerim":
                                 st.session_state["aktif_kayit_id"] = tum_kayitlar["ids"][i]
                                 st.session_state["genis_arama_yapildi"] = False
                                 st.session_state["mod_gecis_hedefi"] = "Genel Haber Modu"
+                                st.session_state["son_guncellemeler"] = json.loads(meta.get("guncellemeler", "[]"))
                                 st.rerun()
                             else:
                                 st.warning("Bu konu için kayıtlı bir sorgu bulunamadı.")
@@ -1062,28 +1091,30 @@ elif mod == "⭐ Favorilerim":
 
                                             yeni_analiz_alarm = haberleri_analiz_et(yeni_haberler, alarm["konu"])
                                             yeni_ozet_metni_alarm = yeni_analiz_alarm.get("tldr", "")
-                                            kaynak_linkleri_alarm = "\n".join(
-                                                f"- [{h.get('Başlık', 'Başlık yok')}]({h.get('URL', '#')}) — {h.get('Kaynak', 'Bilinmiyor')}"
+                                            yeni_kaynaklar_alarm = [
+                                                {
+                                                    "baslik": h.get("Başlık", "Başlık yok"),
+                                                    "url": h.get("URL", "#"),
+                                                    "kaynak": h.get("Kaynak", "Bilinmiyor"),
+                                                }
                                                 for h in yeni_haberler[:8]
-                                            )
-                                            onceki_ozet_alarm = tum_kayitlar_alarm["documents"][onceki_index_alarm]
-                                            guncellenmis_ozet_alarm = (
-                                                f"{onceki_ozet_alarm}\n\n---\n\n"
-                                                f"🔴 **SON DAKİKA - Yeni Gelişmeler**\n\n"
-                                                f"{yeni_ozet_metni_alarm}\n\n"
-                                                f"**Kaynaklar:**\n{kaynak_linkleri_alarm}"
-                                            )
+                                            ]
 
                                             onceki_bias_alarm = json.loads(onceki_meta_alarm.get("bias_analysis", "{}"))
                                             onceki_bias_alarm.update(yeni_analiz_alarm.get("bias_analysis", {}))
 
+                                            mevcut_guncellemeler_alarm = json.loads(onceki_meta_alarm.get("guncellemeler", "[]"))
+                                            mevcut_guncellemeler_alarm = guncelleme_ekle(
+                                                mevcut_guncellemeler_alarm, yeni_ozet_metni_alarm, yeni_kaynaklar_alarm
+                                            )
+
                                             collection.update(
                                                 ids=[tum_kayitlar_alarm["ids"][onceki_index_alarm]],
-                                                documents=[guncellenmis_ozet_alarm],
                                                 metadatas=[{
                                                     **onceki_meta_alarm,
                                                     "haberler": json.dumps(birlesik_haberler_alarm, ensure_ascii=False),
                                                     "bias_analysis": json.dumps(onceki_bias_alarm, ensure_ascii=False),
+                                                    "guncellemeler": json.dumps(mevcut_guncellemeler_alarm, ensure_ascii=False),
                                                 }]
                                             )
                                     except Exception:

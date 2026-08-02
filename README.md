@@ -195,7 +195,13 @@ ChromaDB, SQLite, yfinance
   ![Ürün Durumu 1](ProjectManagement/Sprint3Documents/urun-durumu-1.png)
   ![Ürün Durumu 2](ProjectManagement/Sprint3Documents/urun-durumu-2.png)
   ![Ürün Durumu 3](ProjectManagement/Sprint3Documents/urun-durumu-3.png)
+  ![Ürün Durumu 3](ProjectManagement/Sprint3Documents/urun-durumu-4.png)
 
+  ![Örnek PDF Raporu 1](ProjectManagement/Sprint3Documents/ExampleFiles/haber_analizi_yapay_zeka.pdf)
+  ![Örnek CSV Dosyası 1](ProjectManagement/Sprint3Documents/ExampleFiles/haberler_yapay_zeka.csv)
+  ![Örnek PDF Raporu 2](ProjectManagement/Sprint3Documents/ExampleFiles/finansal_analiz_USD_TRY.pdf)
+  ![Örnek CSV Dosyası 2](ProjectManagement/Sprint3Documents/ExampleFiles/fiyat_verisi_USD_TRY.csv)
+  
 - **Sprint Review:**
   Kaynak kartı tasarımı (başlık, kaynak adı, tarih, favori/not ikonları, olgu-yorum ve
   doğrulama etiketleri) tamamlandı; favori ekleme ve not alma özellikleri artık kalıcı

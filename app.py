@@ -199,13 +199,6 @@ if mod == "Genel Haber Modu":
     )
 
     kullanici = st.session_state.get("kullanici")
-    if AJANLAR_YUKLENDI and kullanici:
-        try:
-            sik_konu = sik_sorulan_konuyu_getir(kullanici["id"])
-            if sik_konu:
-                st.info(f"💡 Sık sorduğunuz **{sik_konu}** konusunda yeni gelişmeler olabilir.")
-        except Exception:
-            pass  # kişiselleştirme önerisi opsiyoneldir, sessizce atlanır
 
     col_input, col_button = st.columns([4, 1])
     with col_input:
